@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Аккордеон настроения</title>
+<style>
+:root{color-scheme:dark;--accent:#e9fa95}
+*{box-sizing:border-box}
+body{margin:0;background:#161419;color:#f7f4ef;font:16px system-ui,sans-serif}
+main{width:min(100% - 36px,900px);margin:64px auto}
+header p{color:#c5becb}
+h1{font-size:clamp(2.6rem,8vw,6rem);line-height:.94;margin:16px 0 24px;letter-spacing:-.065em}
+.brand,small{color:#c5becb}
+.moods{display:grid;gap:10px;margin:28px 0}
+button{font:inherit;cursor:pointer;border:1px solid #605765;border-radius:12px;padding:12px 16px;background:#26212a;color:inherit}
+button:focus-visible,input:focus-visible{outline:2px solid white;outline-offset:3px}
+.mood{display:flex;justify-content:space-between;align-items:center;text-align:left;gap:12px;min-height:62px}
+.mood[aria-pressed=true]{background:var(--accent);color:#201d23;border-color:transparent}
+.mood[aria-pressed=true] small{color:inherit}
+.player{padding:22px;border:1px solid #605765;border-radius:18px;background:#201c24}
+.player h2{font-size:1.5rem;margin:0}
+#status{color:#c5becb;margin:8px 0 16px}
+.controls,.stream{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+#play{background:var(--accent);color:#201d23;border-color:transparent;font-weight:700}
+label{display:flex;align-items:center;gap:8px}
+input{accent-color:var(--accent);font:inherit}
+input[type=url]{width:min(100%,420px);min-height:44px;padding:8px;border:1px solid #605765;border-radius:8px}
+details{margin-top:20px}
+summary{cursor:pointer}
+.stream{margin-top:10px}
+</style>
+<main>
+<header>
+<span class="brand">Инстарадио · браузерное демо</span>
+<h1>Аккордеон<br>настроения</h1>
+<p>Выбери настроение и послушай, как меняется звучание.</p>
+</header>
+<section class="moods" aria-label="Настроения">
+<button class="mood" data-mood="0" aria-pressed="true"><strong>Спокойствие</strong><small>Мягкие аккорды</small></button>
+<button class="mood" data-mood="1" aria-pressed="false"><strong>Фокус</strong><small>Ровный пульс</small></button>
+<button class="mood" data-mood="2" aria-pressed="false"><strong>Энергия</strong><small>Быстрый ритм</small></button>
+</section>
+<section class="player" aria-label="Плеер">
+<h2 id="track">Спокойствие</h2>
+<p id="status" role="status">Готов к воспроизведению</p>
+<div class="controls">
+<button id="play">Слушать</button>
+<button id="next">Следующее настроение</button>
+<button id="mute" aria-pressed="false">Без звука</button>
+<label>Громкость <input id="volume" type="range" min="0" max="100" value="65"></label>
+</div>
+<details>
+<summary>Подключить свой аудиопоток</summary>
+<form class="stream">
+<label for="url">URL потока</label>
+<input id="url" type="url" required placeholder="https://…">
+<button>Подключить</button>
+</form>
+</details>
+<audio preload="none"></audio>
+</section>
+</main>
+<script>
+const moods = [
+  {name:'Спокойствие', file:'calm', color:'#e9fa95'},
+  {name:'Фокус', file:'focus', color:'#b9dcff'},
+  {name:'Энергия', file:'energy', color:'#ffc297'}
+];
+const audio = document.querySelector('audio');
+const play = document.querySelector('#play');
+const status = document.querySelector('#status');
+const buttons = [...document.querySelectorAll('.mood')];
+let selected = 0;
+let revision = 0;
+let requested = false;
+audio.volume = .65;
+
+function setPlaying(active) {
+  requested = active;
+  play.textContent = active ? 'Пауза' : 'Слушать';
+}
+
+async function start() {
+  const current = ++revision;
+  if (audio.error) audio.load();
+  setPlaying(true);
+  status.textContent = 'Загрузка…';
+  try {
+    await audio.play();
+  } catch {
+    if (current !== revision) return;
+    setPlaying(false);
+    status.textContent = 'Не удалось запустить аудио';
+  }
+}
+
+function select(index, autoplay) {
+  const mood = moods[index];
+  selected = index;
+  buttons.forEach((button, position) => button.setAttribute('aria-pressed', String(position === index)));
+  document.documentElement.style.setProperty('--accent', mood.color);
+  document.querySelector('#track').textContent = mood.name;
+  audio.loop = true;
+  audio.src = 'audio/' + mood.file + '.wav';
+  if (autoplay) start();
+}
+
+buttons.forEach((button, index) => button.addEventListener('click', () => select(index, true)));
+document.querySelector('#next').addEventListener('click', () => select((selected + 1) % moods.length, true));
+play.addEventListener('click', () => {
+  if (!requested) {
+    start();
+    return;
+  }
+  ++revision;
+  setPlaying(false);
+  audio.pause();
+  status.textContent = 'Пауза';
+});
+document.querySelector('#mute').addEventListener('click', event => {
+  audio.muted = !audio.muted;
+  event.currentTarget.setAttribute('aria-pressed', String(audio.muted));
+});
+document.querySelector('#volume').addEventListener('input', event => {
+  audio.volume = Number(event.currentTarget.value) / 100;
+});
+document.querySelector('form').addEventListener('submit', event => {
+  event.preventDefault();
+  const url = new URL(document.querySelector('#url').value);
+  if (!['https:', 'http:'].includes(url.protocol)) {
+    status.textContent = 'Укажи адрес HTTPS или HTTP';
+    return;
+  }
+  buttons.forEach(button => button.setAttribute('aria-pressed', 'false'));
+  document.querySelector('#track').textContent = 'Свой поток';
+  audio.loop = false;
+  audio.src = url.href;
+  start();
+});
+audio.addEventListener('playing', () => { if (requested) status.textContent = 'Воспроизводится'; });
+audio.addEventListener('waiting', () => { if (requested) status.textContent = 'Буферизация…'; });
+audio.addEventListener('ended', () => { setPlaying(false); status.textContent = 'Воспроизведение завершено'; });
+audio.addEventListener('error', () => {
+  if (!audio.error) return;
+  setPlaying(false);
+  status.textContent = 'Источник аудио недоступен';
+});
+select(0, false);
+</script>
+</html>
