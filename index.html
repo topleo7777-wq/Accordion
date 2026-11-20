@@ -28,13 +28,27 @@ input[type=url]{width:min(100%,420px);min-height:44px;padding:8px;border:1px sol
 details{margin-top:20px}
 summary{cursor:pointer}
 .stream{margin-top:10px}
+nav,.links {display:flex;flex-wrap:wrap;gap:10px}
+nav a,.links a {display:inline-block;padding:9px 12px;color:inherit;border:1px solid #605765;border-radius:8px}
+a:focus-visible,summary:focus-visible {outline:2px solid white;outline-offset:3px}
+#checks,#project {margin-top:24px}
+#results,#events {padding-left:24px}
+#events {max-height:10rem;overflow:auto;color:#c5becb}
+#results li,#events li {margin:6px 0}
+section {scroll-margin-top:20px}
 </style>
 <main>
 <header>
 <span class="brand">Инстарадио · браузерное демо</span>
 <h1>Аккордеон<br>настроения</h1>
 <p>Выбери настроение и послушай, как меняется звучание.</p>
+<nav aria-label="Панель управления">
+<a href="#player">Плеер</a>
+<a href="#checks">Проверки и журнал</a>
+<a href="#project">GitHub</a>
+</nav>
 </header>
+<div id="player">
 <section class="moods" aria-label="Настроения">
 <button class="mood" data-mood="0" aria-pressed="true"><strong>Спокойствие</strong><small>Мягкие аккорды</small></button>
 <button class="mood" data-mood="1" aria-pressed="false"><strong>Фокус</strong><small>Ровный пульс</small></button>
@@ -59,6 +73,27 @@ summary{cursor:pointer}
 </details>
 <audio preload="none"></audio>
 </section>
+</div>
+<section id="checks" class="player" aria-labelledby="checks-title">
+<h2 id="checks-title">Проверки и журнал</h2>
+<p>Проверка загружает все три демозаписи в фоновом режиме. Чтобы проверить звук, выбери настроение в плеере.</p>
+<button id="run-checks" type="button">Проверить демозаписи</button>
+<p id="check-status" role="status"></p>
+<ul id="results"></ul>
+<details>
+<summary>Журнал плеера</summary>
+<ol id="events"></ol>
+<button id="clear-events" type="button">Очистить журнал</button>
+</details>
+</section>
+<section id="project" class="player" aria-labelledby="project-title">
+<h2 id="project-title">Проект на GitHub</h2>
+<p class="links">
+<a href="https://github.com/topleo7777-wq/Accordion">Репозиторий</a>
+<a href="https://github.com/topleo7777-wq/Accordion/commits/main/">История изменений</a>
+<a href="https://github.com/topleo7777-wq/Accordion/settings">Настройки репозитория</a>
+</p>
+</section>
 </main>
 <script>
 const moods = [
@@ -70,10 +105,65 @@ const audio = document.querySelector('audio');
 const play = document.querySelector('#play');
 const status = document.querySelector('#status');
 const buttons = [...document.querySelectorAll('.mood')];
+const events = document.querySelector('#events');
+const results = document.querySelector('#results');
+const checkStatus = document.querySelector('#check-status');
 let selected = 0;
 let revision = 0;
 let requested = false;
 audio.volume = .65;
+
+function addEntry(list, message) {
+  const entry = document.createElement('li');
+  entry.textContent = message;
+  list.append(entry);
+}
+
+function log(message) {
+  addEntry(events, new Date().toLocaleTimeString('ru') + ' — ' + message);
+  if (events.children.length > 50) events.firstElementChild.remove();
+  events.scrollTop = events.scrollHeight;
+}
+
+function demoUrl(mood) {
+  return 'audio/' + mood.file + '.wav';
+}
+
+function checkAudio(mood) {
+  return new Promise(resolve => {
+    const sample = new Audio();
+    function finish(ok) {
+      clearTimeout(timer);
+      sample.oncanplay = null;
+      sample.onerror = null;
+      sample.removeAttribute('src');
+      sample.load();
+      resolve(ok);
+    }
+    const timer = setTimeout(() => finish(false), 8000);
+    sample.oncanplay = () => finish(Number.isFinite(sample.duration) && sample.duration > 0);
+    sample.onerror = () => finish(false);
+    sample.preload = 'auto';
+    sample.src = demoUrl(mood);
+  });
+}
+
+document.querySelector('#run-checks').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  results.replaceChildren();
+  checkStatus.textContent = 'Проверяю демозаписи…';
+  try {
+    const checks = await Promise.all(moods.map(checkAudio));
+    checks.forEach((ok, index) => {
+      addEntry(results, moods[index].name + ' — ' + (ok ? 'готово к воспроизведению' : 'проверка не прошла'));
+    });
+    checkStatus.textContent = 'Доступно демозаписей: ' + checks.filter(Boolean).length + ' из ' + moods.length;
+  } finally {
+    button.disabled = false;
+  }
+});
+document.querySelector('#clear-events').addEventListener('click', () => events.replaceChildren());
 
 function setPlaying(active) {
   requested = active;
@@ -101,7 +191,8 @@ function select(index, autoplay) {
   document.documentElement.style.setProperty('--accent', mood.color);
   document.querySelector('#track').textContent = mood.name;
   audio.loop = true;
-  audio.src = 'audio/' + mood.file + '.wav';
+  audio.src = demoUrl(mood);
+  log('Выбрано настроение «' + mood.name + '»');
   if (autoplay) start();
 }
 
@@ -135,8 +226,15 @@ document.querySelector('form').addEventListener('submit', event => {
   document.querySelector('#track').textContent = 'Свой поток';
   audio.loop = false;
   audio.src = url.href;
+  log('Подключение своего потока');
   start();
 });
+for (const [name, message] of Object.entries({
+  playing: 'Воспроизведение', pause: 'Пауза', waiting: 'Буферизация',
+  ended: 'Воспроизведение завершено', error: 'Ошибка аудио'
+})) {
+  audio.addEventListener(name, () => log(message));
+}
 audio.addEventListener('playing', () => { if (requested) status.textContent = 'Воспроизводится'; });
 audio.addEventListener('waiting', () => { if (requested) status.textContent = 'Буферизация…'; });
 audio.addEventListener('ended', () => { setPlaying(false); status.textContent = 'Воспроизведение завершено'; });
